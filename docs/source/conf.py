@@ -10,14 +10,14 @@ import os
 import sys
 import importlib
 
-project = "template-python-lib"
+project = "NPKit"
 try:
     __version__ = importlib.import_module("template_python_lib").__version__
 except Exception:
     __version__ = "0.0.0"
 sys.path.insert(0, os.path.abspath("../../src"))
 
-project = "template-python-lib"
+project = "NPKit"
 copyright = "2025, Jan Lukas Späh"
 author = "Jan Lukas Späh"
 release = __version__
