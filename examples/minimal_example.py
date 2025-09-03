@@ -22,7 +22,7 @@ V = np.array([100])
 model = GaussianModel(obs=obs, covariance=V)
 
 # Observed data (example)
-y_obs = np.array([100])
+y_obs = 100
 # data = Combination(names=obs.names, values=y_obs, covariance=V)
 
 
@@ -30,19 +30,20 @@ def like_builder():
     return GaussianLikelihood(obs, y_obs, V)
 
 
-start = {"C": 0.0}
-bounds = {"C": (-1e6, 1e6)}
+start = {"C": 0.5}
+# bounds = {"C": (-1e6, 1e6)}
+bounds = None
 rng = np.random.default_rng(123)
 
 # Build a 68% belt
-grid = np.linspace(-2, 2, 101)
+grid = np.linspace(-2, 2, 51)
 belt = build_belt(
     param="C",
     model=model,
     like_builder=like_builder,
     grid=grid,
-    n_toys=1000,
-    alpha=1 - 0.95,
+    n_toys=3000,
+    alpha=1 - 0.6827,
     rng=rng,
     start=start,
     bounds=bounds,
