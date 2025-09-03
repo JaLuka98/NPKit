@@ -3,9 +3,9 @@ requires = ["setuptools>=65.5", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "template-python-lib"
+name = "NPKit"
 version = "2025.09.0"
-description = "template-python-lib: A template repository for modern python packages."
+description = "NPKit: Toolkit for frequentist interpretations and inference."
 authors = [
   { name = "Jan Lukas Späh", email = "your.email@example.com" }
 ]
@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "numpy>=2.0",
+  "numpy>=2.0", "scipy>=1.16"
 ]
 
 [project.optional-dependencies]
@@ -28,12 +28,28 @@ dev  = ["bump-my-version>=1.2", "ruff>=0.6", "pre-commit>=3.8", "mypy>=1.11"]
 docs = ["sphinx>=7", "sphinx-rtd-theme", "sphinx-autodoc-typehints", "sphinx-autoapi", "myst-parser"]
 
 [project.urls]
-Homepage = "https://github.com/JaLuka98/template-python-lib"
-Issues   = "https://github.com/JaLuka98/template-python-lib/issues"
-Source   = "https://github.com/JaLuka98/template-python-lib"
+Homepage = "https://github.com/JaLuka98/NPKit"
+Issues   = "https://github.com/JaLuka98/NPKit/issues"
+Source   = "https://github.com/JaLuka98/NPKit"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["^docs/", "^examples/"]
+
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = [
+  "scipy.*",
+  "matplotlib.*",
+]
+ignore_missing_imports = true
