@@ -4,10 +4,7 @@ from typing import Mapping, Tuple, Optional
 
 import numpy as np
 
-try:
-    from scipy.optimize import minimize
-except Exception as _exc:  # pragma: no cover
-    minimize = None  # type: ignore[assignment]
+from scipy.optimize import minimize, minimize_scalar
 
 from .likelihood import GaussianLikelihood
 from .observables import Params
@@ -37,33 +34,56 @@ def fit_mle(
     """
     Minimise nll(params) to obtain MLE and nll_min.
 
-    Parameters
-    ----------
-    like : GaussianLikelihood
-    start : dict[str, float]
-        Starting values for all free parameters.
-    bounds : dict[str, (low, high)] | None
-        Optional box constraints.
-
-    Returns
-    -------
-    (best_params, nll_min)
+    For 1 parameter, use a scalar line search (robust if the gradient is zero at start).
+    For >=2 parameters, use L-BFGS-B with a Powell fallback.
     """
-    _require_scipy()
-
     names = list(start.keys())
-    x0 = _params_to_vector(names, start)
+
+    # --- 1D robust path -----------------------------------------------------
+    if len(names) == 1:
+        pname = names[0]
+
+        def f1(x: float) -> float:
+            return like.nll({pname: float(x)})
+
+        if bounds and pname in bounds:
+            lo, hi = bounds[pname]
+            res = minimize_scalar(f1, bounds=(lo, hi), method="bounded")
+        else:
+            # Auto-bracket: expand until downhill is found
+            a, b = 0.0, 1.0
+            fa, fb = f1(a), f1(b)
+            k = 0
+            while fb >= fa and k < 12:
+                b *= 2.0
+                fb = f1(b)
+                k += 1
+            # If we never found downhill (pathological), still proceed
+            res = minimize_scalar(f1, bracket=(a, b))
+
+        if not res.success:
+            raise RuntimeError(f"MLE 1D optimisation failed: {res.message}")
+        return {pname: float(res.x)}, float(res.fun)
+
+    # --- >=2D path (as before) ---------------------------------------------
+    names = list(start.keys())
+    x0 = np.asarray([start[n] for n in names], dtype=float)
+
     opt_bounds = None
     if bounds:
         opt_bounds = [bounds.get(n, (-np.inf, np.inf)) for n in names]
 
     def fun(x: np.ndarray) -> float:
-        return like.nll(_vector_to_params(names, x))
+        return like.nll({n: float(v) for n, v in zip(names, x)})
 
     res = minimize(fun, x0, bounds=opt_bounds, method="L-BFGS-B")
+    # Fallback if stuck near start (can happen on flat/ill-conditioned surfaces)
+    if (not res.success) or np.allclose(res.x, x0):
+        res = minimize(fun, x0, bounds=opt_bounds, method="Powell")
+
     if not res.success:
         raise RuntimeError(f"MLE optimisation failed: {res.message}")
-    best = _vector_to_params(names, res.x)
+    best = {n: float(v) for n, v in zip(names, res.x)}
     return best, float(res.fun)
 
 

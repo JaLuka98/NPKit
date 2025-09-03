@@ -30,7 +30,7 @@ def like_builder():
     return GaussianLikelihood(obs, y_obs, V)
 
 
-start = {"C": 0.5}
+start = {"C": 0.0}
 # bounds = {"C": (-1e6, 1e6)}
 bounds = None
 rng = np.random.default_rng(123)
