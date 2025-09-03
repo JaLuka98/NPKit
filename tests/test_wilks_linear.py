@@ -56,9 +56,9 @@ def test_linear_model_wilks_68pct():
     assert 0.95 <= q_mean <= 1.05, f"mean q_crit {q_mean:.3f} not ~ 1"
 
     # every point within a reasonable band (occasionally a few % jitter)
-    assert np.all(
-        (belt.qcrit >= 0.8) & (belt.qcrit <= 1.2)
-    ), f"some q_crit outside [0.8,1.2]: {belt.qcrit.min():.3f}..{belt.qcrit.max():.3f}"
+    assert np.all((belt.qcrit >= 0.8) & (belt.qcrit <= 1.2)), (
+        f"some q_crit outside [0.8,1.2]: {belt.qcrit.min():.3f}..{belt.qcrit.max():.3f}"
+    )
 
     # --- Invert for observed interval: expect ~[-1, 1] ------------------------
     lo, hi = invert_belt(belt, like_builder=like_builder, start=start, bounds=bounds)

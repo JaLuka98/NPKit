@@ -60,6 +60,6 @@ def test_boundary_chernoff_quantiles_at_zero(conf, expected, n_toys, tol):
     )
 
     q0 = float(belt.qcrit[0])
-    assert (
-        abs(q0 - expected) <= tol
-    ), f"C=0: q_crit={q0:.3f}, expected {expected:.3f} ± {tol}"
+    assert abs(q0 - expected) <= tol, (
+        f"C=0: q_crit={q0:.3f}, expected {expected:.3f} ± {tol}"
+    )
