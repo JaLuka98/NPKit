@@ -1,7 +1,6 @@
 # tests/test_chernoff_boundary.py
 import numpy as np
 from scipy.stats import norm
-import math
 import pytest
 
 from npkit import Observable, ObservableSet, GaussianModel, GaussianLikelihood
@@ -11,7 +10,6 @@ from npkit.neyman import build_belt
 def _q_chernoff_quantile(conf: float) -> float:
     """Quantile of 0.5*delta0 + 0.5*chi2_1 at confidence 'conf' (e.g. 0.6827, 0.9545)."""
     # For mixture: F(q) = Phi(sqrt(q))  ->  sqrt(q) = Phi^{-1}(conf)
-    from math import erf, sqrt
 
     z = float(norm.ppf(conf))
     return z * z

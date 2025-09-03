@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Tuple, Optional
 
 import numpy as np
 
@@ -32,7 +31,7 @@ def _coerce_cov(cov: object, n: int) -> np.ndarray:
             M = np.diag(arr)
         elif arr.ndim == 2:
             if arr.shape != (n, n):
-                raise ValueError(f"2D covariance shape {arr.shape} != (n,n)={(n,n)}")
+                raise ValueError(f"2D covariance shape {arr.shape} != (n,n)={(n, n)}")
             M = arr
         else:
             raise ValueError("covariance must be None, scalar, (n,), or (n,n)")

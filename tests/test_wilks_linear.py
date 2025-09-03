@@ -1,6 +1,5 @@
 # tests/test_wilks_linear.py
 import numpy as np
-import pytest
 
 from npkit import (
     Observable,

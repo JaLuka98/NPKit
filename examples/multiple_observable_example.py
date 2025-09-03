@@ -6,7 +6,7 @@ from npkit import (
     GaussianModel,
     GaussianLikelihood,
 )
-from npkit import build_belt, invert_belt, q_profile
+from npkit import build_belt, invert_belt
 
 # Model: two observables
 obs = ObservableSet(

@@ -2,11 +2,10 @@ import numpy as np
 from npkit import (
     Observable,
     ObservableSet,
-    Combination,
     GaussianModel,
     GaussianLikelihood,
 )
-from npkit import build_belt, invert_belt, q_profile
+from npkit import build_belt, invert_belt
 import matplotlib.pyplot as plt
 from npkit.plot import plot_belt
 

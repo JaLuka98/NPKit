@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping, Tuple, Optional
+from typing import Tuple, Optional, Callable
 
 import numpy as np
 
