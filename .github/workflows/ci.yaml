@@ -38,7 +38,7 @@ jobs:
         run: ruff format --check .
 
       - name: mypy
-        run: mypy .
+        run: mypy ./src
 
       # ---- Tests ----
       - name: Run tests

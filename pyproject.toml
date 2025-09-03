@@ -37,3 +37,19 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["^docs/", "^examples/"]
+
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = [
+  "scipy.*",
+  "matplotlib.*",
+]
+ignore_missing_imports = true

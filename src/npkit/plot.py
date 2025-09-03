@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -7,13 +8,14 @@ from .neyman import Belt
 
 
 def plot_belt(
-    belt: Belt, q_obs: np.ndarray | None = None, ax: plt.Axes | None = None
-) -> plt.Axes:
+    belt: Belt, q_obs: np.ndarray | None = None, ax: Any | None = None
+) -> Any:
     """
     Plot q_crit(C) across the grid; optionally overlay q_obs(C).
     """
     if ax is None:
         fig, ax = plt.subplots()
+        _ = fig  # silence linters if unused
     ax.step(
         belt.grid, belt.qcrit, where="mid", label=f"q_crit (alpha={belt.alpha:.3f})"
     )
