@@ -73,6 +73,9 @@ class GaussianModel:
         self._cov_inv: NDArray[np.float64] = cast(
             NDArray[np.float64], np.linalg.inv(self._cov)
         )
+        self._chol: NDArray[np.float64] = cast(
+            NDArray[np.float64], np.linalg.cholesky(self._cov)
+        )
         sign, logdet = np.linalg.slogdet(self._cov)
         if sign <= 0:
             raise ValueError("covariance must be positive-definite")
@@ -99,9 +102,17 @@ class GaussianModel:
         If `size` is None, return one vector with shape (n,).
         If `size` is an int or tuple, return an array with shape `size + (n,)`.
         """
-        mean = self.obs.predict_vector(params)
-        assert self._cov is not None  # for type-checkers
-        y = rng.multivariate_normal(mean=mean, cov=self._cov, size=size)
+        mean = np.asarray(self.obs.predict_vector(params), dtype=float)
+        n = int(mean.size)
+
+        if size is None:
+            z = rng.standard_normal(n)
+            y = mean + self._chol @ z
+        else:
+            sample_shape = size if isinstance(size, tuple) else (int(size),)
+            z = rng.standard_normal(size=sample_shape + (n,))
+            y = mean + z @ self._chol.T
+
         return cast(NDArray[np.float64], np.asarray(y, dtype=float))
 
     def likelihood(self, data: Combination) -> "GaussianLikelihood":
