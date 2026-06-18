@@ -6,6 +6,7 @@ import numpy as np
 
 from scipy.optimize import minimize, minimize_scalar
 
+from ._scan import prepare_gaussian_grid_cache_1d
 from .likelihood import GaussianLikelihood
 from .observables import Params
 
@@ -154,15 +155,19 @@ def profile_curve_from_likelihood(
       - infer the best fit from the minimum of that curve,
       - shift the curve so q_min = 0.
     """
-    grid_arr = np.asarray(grid, dtype=float)
-    curve = np.asarray(
-        [like.nll({**start, param: float(value)}) for value in grid_arr],
-        dtype=float,
+    cache = prepare_gaussian_grid_cache_1d(
+        obs=like.obs,
+        covariance=like.V,
+        param=param,
+        grid=grid,
+        start=start,
     )
+    y_w = cache.whiten(like.y)
+    curve = cache.curve_from_yw(y_w)
     best_idx = int(np.argmin(curve))
-    nll_min = float(curve[best_idx])
-    q_curve = np.maximum(0.0, curve - nll_min)
-    return float(grid_arr[best_idx]), nll_min, q_curve
+    nll_min = float(curve[best_idx] + float(y_w @ y_w))
+    q_curve = np.maximum(0.0, curve - curve[best_idx])
+    return float(cache.grid[best_idx]), nll_min, q_curve
 
 
 def profile_curve_from_grid(
