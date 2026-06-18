@@ -138,3 +138,47 @@ def q_profile(
 
     q = float(res.fun - nll_min)
     return max(0.0, q)
+
+
+def profile_curve_from_likelihood(
+    param: str,
+    grid: np.ndarray,
+    like: GaussianLikelihood,
+    start: Params,
+) -> tuple[float, float, np.ndarray]:
+    """
+    Evaluate the NLL on a 1D parameter grid without any minimization.
+
+    This is the no-nuisance scan path:
+      - compute NLL at every grid point,
+      - infer the best fit from the minimum of that curve,
+      - shift the curve so q_min = 0.
+    """
+    grid_arr = np.asarray(grid, dtype=float)
+    curve = np.asarray(
+        [like.nll({**start, param: float(value)}) for value in grid_arr],
+        dtype=float,
+    )
+    best_idx = int(np.argmin(curve))
+    nll_min = float(curve[best_idx])
+    q_curve = np.maximum(0.0, curve - nll_min)
+    return float(grid_arr[best_idx]), nll_min, q_curve
+
+
+def profile_curve_from_grid(
+    param: str,
+    grid: np.ndarray,
+    like_builder: Callable[[], GaussianLikelihood],
+    start: Params,
+) -> tuple[float, float, np.ndarray]:
+    """
+    Convenience wrapper around `profile_curve_from_likelihood`.
+
+    A fresh likelihood is built once, then scanned on the supplied grid.
+    """
+    return profile_curve_from_likelihood(
+        param=param,
+        grid=grid,
+        like=like_builder(),
+        start=start,
+    )

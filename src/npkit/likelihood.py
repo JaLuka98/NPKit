@@ -78,13 +78,30 @@ class GaussianModel:
             raise ValueError("covariance must be positive-definite")
         self._logdet = float(logdet)
 
-    def simulate(self, params: Params, rng: np.random.Generator) -> NDArray[np.float64]:
+    @property
+    def covariance_matrix(self) -> NDArray[np.float64]:
+        assert self._cov is not None
+        return self._cov
+
+    @property
+    def inverse_covariance(self) -> NDArray[np.float64]:
+        return self._cov_inv
+
+    def simulate(
+        self,
+        params: Params,
+        rng: np.random.Generator,
+        size: int | tuple[int, ...] | None = None,
+    ) -> NDArray[np.float64]:
         """
-        Draw one pseudo-experiment vector y ~ N(μ(params), V).
+        Draw pseudo-experiments y ~ N(μ(params), V).
+
+        If `size` is None, return one vector with shape (n,).
+        If `size` is an int or tuple, return an array with shape `size + (n,)`.
         """
         mean = self.obs.predict_vector(params)
         assert self._cov is not None  # for type-checkers
-        y = rng.multivariate_normal(mean=mean, cov=self._cov)
+        y = rng.multivariate_normal(mean=mean, cov=self._cov, size=size)
         return cast(NDArray[np.float64], np.asarray(y, dtype=float))
 
     def likelihood(self, data: Combination) -> "GaussianLikelihood":
