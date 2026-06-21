@@ -168,8 +168,8 @@ def _central_confidence_from_sigma(nsigma: float) -> float:
 @pytest.mark.parametrize(
     "nsigma,tol",
     [
-        (1.0, 0.06),
-        (2.0, 0.12),
+        (1.0, 0.01),
+        (2.0, 0.02),
     ],
 )
 def test_grid_belt_quadratic_boundary_matches_chernoff_mixture(
@@ -192,7 +192,7 @@ def test_grid_belt_quadratic_boundary_matches_chernoff_mixture(
         params=("C",),
         model=model,
         grid=grid,
-        n_toys=5_000,
+        n_toys=500_000,
         alpha=alpha,
         rng=rng,
     )
