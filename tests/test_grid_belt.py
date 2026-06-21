@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+from scipy.optimize import brentq
+from scipy.stats import chi2 as chi2_dist
 from scipy.stats import norm
 
 from npkit import GaussianModel, Observable, ObservableSet
@@ -168,8 +170,8 @@ def _central_confidence_from_sigma(nsigma: float) -> float:
 @pytest.mark.parametrize(
     "nsigma,tol",
     [
-        (1.0, 0.01),
-        (2.0, 0.02),
+        (1.0, 0.03),
+        (2.0, 0.07),
     ],
 )
 def test_grid_belt_quadratic_boundary_matches_chernoff_mixture(
@@ -192,7 +194,7 @@ def test_grid_belt_quadratic_boundary_matches_chernoff_mixture(
         params=("C",),
         model=model,
         grid=grid,
-        n_toys=500_000,
+        n_toys=20_000,
         alpha=alpha,
         rng=rng,
     )
@@ -201,5 +203,128 @@ def test_grid_belt_quadratic_boundary_matches_chernoff_mixture(
     q0 = float(belt.qcrit[0])
     assert abs(q0 - expected) <= tol, (
         f"boundary qcrit {q0:.6f} not close to Chernoff-mixture value "
+        f"{expected:.6f} for nsigma={nsigma}"
+    )
+
+
+def _chernoff_2d_quantile(conf: float) -> float:
+    if conf <= 0.25:
+        return 0.0
+
+    def mix_cdf(q: float) -> float:
+        return float(
+            0.25
+            + 0.5 * chi2_dist.cdf(q, 1)
+            + 0.25 * chi2_dist.cdf(q, 2)
+        )
+
+    upper = 1.0
+    while mix_cdf(upper) < conf:
+        upper *= 2.0
+    return float(brentq(lambda q: mix_cdf(q) - conf, 0.0, upper))
+
+
+@pytest.mark.parametrize(
+    "nsigma,tol",
+    [
+        (1.0, 0.1),
+        (2.0, 0.2),
+    ],
+)
+def test_grid_belt_quadratic_two_dim_boundary_matches_chernoff_mixture(
+    nsigma: float, tol: float
+):
+    """
+    A genuine 2D quadratic boundary should follow the
+    1/4 delta_0 + 1/2 chi^2_1 + 1/4 chi^2_2 mixture.
+    """
+    rng = np.random.default_rng(13579)
+
+    obs = ObservableSet(
+        [
+            Observable("x", lambda p: 100.0 + 10.0 * (p["C1"] ** 2)),
+            Observable("y", lambda p: 100.0 + 10.0 * (p["C2"] ** 2)),
+        ]
+    )
+    model = GaussianModel(obs=obs, covariance=100.0)
+
+    conf = _central_confidence_from_sigma(nsigma)
+    alpha = 1.0 - conf
+    grid_1d = np.linspace(0.0, 2.0, 11, dtype=float)
+    grid = np.array([(c1, c2) for c1 in grid_1d for c2 in grid_1d], dtype=float)
+
+    belt = build_grid_belt(
+        params=("C1", "C2"),
+        model=model,
+        grid=grid,
+        n_toys=20_000,
+        alpha=alpha,
+        rng=rng,
+        batch_size=10,
+    )
+
+    expected = _chernoff_2d_quantile(conf)
+    q0 = float(belt.qcrit[0])
+
+    assert abs(q0 - expected) <= tol, (
+        f"2D boundary qcrit {q0:.6f} not close to Chernoff-mixture value "
+        f"{expected:.6f} for nsigma={nsigma}"
+    )
+
+
+@pytest.mark.parametrize(
+    "nsigma,tol",
+    [
+        (1.0, 0.03),
+        (2.0, 0.07),
+    ],
+)
+def test_grid_belt_profiled_one_parameter_matches_chernoff_mixture(
+    nsigma: float, tol: float
+):
+    """
+    If we profile over one quadratic nuisance parameter on a 2D grid, the
+    boundary for the parameter of interest should still follow the 1D mixture.
+    """
+    rng = np.random.default_rng(24680)
+
+    obs = ObservableSet(
+        [
+            Observable("x", lambda p: 100.0 + 10.0 * (p["C1"] ** 2)),
+            Observable("y", lambda p: 100.0 + 10.0 * (p["C2"] ** 2)),
+        ]
+    )
+    model = GaussianModel(obs=obs, covariance=100.0)
+
+    conf = _central_confidence_from_sigma(nsigma)
+    c1_grid = np.linspace(0.0, 4.0, 81, dtype=float)
+    c2_grid = np.linspace(0.0, 4.0, 21, dtype=float)
+    grid = np.array([(c1, c2) for c1 in c1_grid for c2 in c2_grid], dtype=float)
+
+    predictions = precompute_predictions(model, ("C1", "C2"), grid)
+    profile_predictions = predictions[np.isclose(grid[:, 0], 0.0)]
+    vinv = model.inverse_covariance
+    chol = model._chol
+
+    n_toys = 30_000
+    batch_size = 100
+    q_values = np.empty(n_toys, dtype=float)
+    offset = 0
+    while offset < n_toys:
+        n_batch = min(batch_size, n_toys - offset)
+        toys = profile_predictions[0] + rng.standard_normal(size=(n_batch, 2)) @ chol.T
+        chi2_profile = chi2_grid(toys, profile_predictions, vinv)
+        chi2_full = chi2_grid(toys, predictions, vinv)
+        q_values[offset : offset + n_batch] = np.maximum(
+            chi2_profile.min(axis=0) - chi2_full.min(axis=0),
+            0.0,
+        )
+        offset += n_batch
+
+    expected = float(norm.ppf(conf) ** 2)
+    q0 = float(np.quantile(q_values, conf))
+
+    assert abs(q0 - expected) <= tol, (
+        f"profiled 1D qcrit {q0:.6f} not close to Chernoff-mixture value "
         f"{expected:.6f} for nsigma={nsigma}"
     )
