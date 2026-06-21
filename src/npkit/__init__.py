@@ -17,11 +17,16 @@ from .stats import (
 )
 from .neyman import (
     Belt,
+    GridBelt,
     build_belt,
     build_belts_from_grid,
+    build_grid_belt,
     check_coverage,
+    chi2_grid,
     invert_belt,
     invert_belt_from_curve,
+    precompute_predictions,
+    q_grid_profile,
 )
 
 __all__ = [
@@ -36,8 +41,13 @@ __all__ = [
     "profile_curve_from_likelihood",
     "q_profile",
     "Belt",
+    "GridBelt",
     "build_belt",
     "build_belts_from_grid",
+    "build_grid_belt",
+    "chi2_grid",
+    "precompute_predictions",
+    "q_grid_profile",
     "invert_belt_from_curve",
     "invert_belt",
     "check_coverage",

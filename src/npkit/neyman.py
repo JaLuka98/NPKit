@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ._scan import (
     fill_q_samples_for_true_index,
@@ -23,6 +24,203 @@ class Belt:
     grid: np.ndarray  # shape (m,)
     qcrit: np.ndarray  # shape (m,)
     alpha: float  # size (e.g. 0.3173 for 68.27% CI)
+
+
+@dataclass
+class GridBelt:
+    """Critical quantiles of the grid-profile statistic for multi-parameter scans."""
+
+    params: tuple[str, ...]
+    grid: NDArray[np.float64]  # shape (n_grid, n_params)
+    qcrit: NDArray[np.float64]  # shape (n_grid,)
+    alpha: float
+    confidence_level: float
+
+
+def _as_parameter_grid(
+    params: Sequence[str],
+    grid: np.ndarray,
+) -> NDArray[np.float64]:
+    """Normalize a 1D or 2D parameter grid to shape (n_grid, n_params)."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    grid_arr = np.asarray(grid, dtype=float)
+
+    if grid_arr.ndim == 1:
+        if len(param_names) != 1:
+            raise ValueError(
+                "a one-dimensional grid can only be used with exactly one parameter"
+            )
+        grid_arr = grid_arr[:, None]
+    elif grid_arr.ndim == 2:
+        if len(param_names) != grid_arr.shape[1]:
+            raise ValueError(
+                "len(params) must match grid.shape[1] for a multi-parameter grid"
+            )
+    else:
+        raise ValueError("grid must be one-dimensional or two-dimensional")
+
+    if grid_arr.shape[0] == 0:
+        raise ValueError("grid must contain at least one parameter point")
+
+    return cast(NDArray[np.float64], np.asarray(grid_arr, dtype=float))
+
+
+def _grid_row_to_params(
+    params: Sequence[str],
+    row: np.ndarray,
+    base: Params | None = None,
+) -> Params:
+    """Convert one grid row into a parameter dictionary."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    row_arr = np.asarray(row, dtype=float)
+    if row_arr.ndim != 1:
+        raise ValueError("row must be one-dimensional")
+    if len(param_names) != row_arr.size:
+        raise ValueError("row length must match len(params)")
+
+    out = dict(base) if base is not None else {}
+    out.update({name: float(value) for name, value in zip(param_names, row_arr)})
+    return out
+
+
+def precompute_predictions(
+    model: GaussianModel,
+    params: Sequence[str],
+    grid: np.ndarray,
+    base: Params | None = None,
+) -> NDArray[np.float64]:
+    """Evaluate the model predictions on every grid point once."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    grid_arr = _as_parameter_grid(param_names, grid)
+    predictions = np.asarray(
+        [
+            model.obs.predict_vector(_grid_row_to_params(param_names, row, base=base))
+            for row in grid_arr
+        ],
+        dtype=float,
+    )
+    return cast(NDArray[np.float64], np.asarray(predictions, dtype=float))
+
+
+def chi2_grid(
+    y: np.ndarray,
+    predictions: np.ndarray,
+    vinv: np.ndarray,
+) -> NDArray[np.float64]:
+    """Vectorized chi2 on a grid of predictions."""
+    y_arr = np.asarray(y, dtype=float)
+    predictions_arr = np.asarray(predictions, dtype=float)
+    vinv_arr = np.asarray(vinv, dtype=float)
+
+    if predictions_arr.ndim != 2:
+        raise ValueError("predictions must have shape (n_grid, n_obs)")
+    if vinv_arr.ndim != 2:
+        raise ValueError("vinv must be a two-dimensional matrix")
+    if vinv_arr.shape != (predictions_arr.shape[1], predictions_arr.shape[1]):
+        raise ValueError("vinv shape must match the observable dimension")
+
+    if y_arr.ndim == 1:
+        if y_arr.shape[0] != predictions_arr.shape[1]:
+            raise ValueError("y must match the observable dimension")
+        delta = predictions_arr - y_arr
+        chi2 = np.einsum("gi,ij,gj->g", delta, vinv_arr, delta)
+        return cast(NDArray[np.float64], np.asarray(chi2, dtype=float))
+
+    if y_arr.ndim == 2:
+        if y_arr.shape[1] != predictions_arr.shape[1]:
+            raise ValueError("y must have shape (n_toys, n_obs)")
+        delta = predictions_arr[:, None, :] - y_arr[None, :, :]
+        chi2 = np.einsum("gti,ij,gtj->gt", delta, vinv_arr, delta)
+        return cast(NDArray[np.float64], np.asarray(chi2, dtype=float))
+
+    raise ValueError("y must be one-dimensional or two-dimensional")
+
+
+def q_grid_profile(
+    y: np.ndarray,
+    predictions: np.ndarray,
+    vinv: np.ndarray,
+    test_index: int,
+) -> float | NDArray[np.float64]:
+    """Grid-profile likelihood-ratio statistic using the discrete best fit."""
+    chi2_values = chi2_grid(y=y, predictions=predictions, vinv=vinv)
+    if chi2_values.ndim == 1:
+        q = float(chi2_values[test_index] - float(np.min(chi2_values)))
+        return float(np.maximum(q, 0.0))
+
+    q = chi2_values[test_index, :] - np.min(chi2_values, axis=0)
+    return cast(NDArray[np.float64], np.maximum(q, 0.0))
+
+
+def build_grid_belt(
+    params: Sequence[str],
+    model: GaussianModel,
+    grid: np.ndarray,
+    n_toys: int,
+    alpha: float,
+    rng: np.random.Generator,
+    base: Params | None = None,
+    batch_size: int | None = None,
+) -> GridBelt:
+    """Build a Neyman belt for a multi-parameter grid without fitting."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    if not param_names:
+        raise ValueError("params must contain at least one parameter name")
+    if n_toys <= 0:
+        raise ValueError("n_toys must be positive")
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must lie in [0, 1]")
+
+    grid_arr = _as_parameter_grid(param_names, grid)
+    predictions = precompute_predictions(model, param_names, grid_arr, base=base)
+
+    cov = getattr(model, "_cov", None)
+    if cov is None:
+        cov = model.covariance_matrix
+    cov_arr = np.asarray(cov, dtype=float)
+
+    vinv = getattr(model, "_cov_inv", None)
+    if vinv is None:
+        vinv = model.inverse_covariance
+    vinv_arr = np.asarray(vinv, dtype=float)
+
+    chol = getattr(model, "_chol", None)
+    if chol is None:
+        chol = np.linalg.cholesky(cov_arr)
+    chol_arr = np.asarray(chol, dtype=float)
+
+    n_obs = int(predictions.shape[1])
+    batch_cap = n_toys if batch_size is None else int(batch_size)
+    if batch_cap <= 0:
+        raise ValueError("batch_size must be positive when provided")
+
+    q_values = np.empty(n_toys, dtype=float)
+    qcrit = np.empty(predictions.shape[0], dtype=float)
+
+    for test_index, mean in enumerate(predictions):
+        offset = 0
+        while offset < n_toys:
+            n_batch = min(batch_cap, n_toys - offset)
+            noise = rng.standard_normal(size=(n_batch, n_obs))
+            toys = mean + noise @ chol_arr.T
+            q_batch = q_grid_profile(
+                y=toys,
+                predictions=predictions,
+                vinv=vinv_arr,
+                test_index=test_index,
+            )
+            q_values[offset : offset + n_batch] = np.asarray(q_batch, dtype=float)
+            offset += n_batch
+
+        qcrit[test_index] = float(np.quantile(q_values, 1.0 - alpha))
+
+    return GridBelt(
+        params=param_names,
+        grid=grid_arr,
+        qcrit=qcrit,
+        alpha=float(alpha),
+        confidence_level=float(1.0 - alpha),
+    )
 
 
 def build_belt(
