@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from scipy.stats import norm
 
 from npkit import GaussianModel, Observable, ObservableSet
 from npkit.neyman import (
@@ -158,3 +159,41 @@ def test_build_grid_belt_accepts_one_dimensional_grid():
     assert isinstance(belt, GridBelt)
     assert belt.grid.shape == (3, 1)
     assert belt.params == ("C",)
+
+
+def test_grid_belt_quadratic_boundary_matches_chernoff_mixture():
+    """
+    The new grid-based fast path should reproduce the known Chernoff-mixture
+    critical value at the boundary for a quadratic model.
+    """
+    rng = np.random.default_rng(24680)
+
+    obs = ObservableSet([Observable("x", lambda p: 100.0 + 10.0 * (p["C"] ** 2))])
+    model = GaussianModel(obs=obs, covariance=100.0)
+
+    conf = 0.6827
+    alpha = 1.0 - conf
+    grid = np.linspace(0.0, 4.0, 41, dtype=float)
+
+    belt = build_grid_belt(
+        params=("C",),
+        model=model,
+        grid=grid,
+        n_toys=500_000,
+        alpha=alpha,
+        rng=rng,
+    )
+
+    expected = float(norm.ppf(conf) ** 2)
+    q0 = float(belt.qcrit[0])
+    print(belt.qcrit)
+    
+    print(f"q0={q0:.6f}, expected={expected:.6f}, diff={q0 - expected:.6f}")
+    
+    diff = q0 - expected
+    assert abs(diff) <= 0.05, (
+        f"boundary qcrit {q0:.6f} not close to Chernoff-mixture value "
+        f"{expected:.6f}; diff={diff:.6f}, conf={conf}, alpha={alpha}, "
+        f"n_toys=500000, seed=24680, grid[0]={grid[0]}, grid[-1]={grid[-1]}, "
+        f"grid_size={len(grid)}"
+    )
