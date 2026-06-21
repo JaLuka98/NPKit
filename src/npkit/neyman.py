@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Callable, cast
 
@@ -83,6 +83,32 @@ def _grid_row_to_params(
     return out
 
 
+def grid_mask_for_fixed_params(
+    params: Sequence[str],
+    grid: np.ndarray,
+    fixed: Mapping[str, float],
+    atol: float = 1e-12,
+) -> NDArray[np.bool_]:
+    """Return a boolean mask selecting grid rows that match the fixed values."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    grid_arr = _as_parameter_grid(param_names, grid)
+
+    if not fixed:
+        raise ValueError("fixed must contain at least one parameter")
+
+    mask = np.ones(grid_arr.shape[0], dtype=bool)
+    for name, value in fixed.items():
+        if name not in param_names:
+            raise KeyError(f"unknown fixed parameter '{name}'")
+        idx = param_names.index(name)
+        mask &= np.isclose(grid_arr[:, idx], float(value), atol=atol, rtol=0.0)
+
+    if not mask.any():
+        raise ValueError("grid contains no rows matching the fixed parameters")
+
+    return cast(NDArray[np.bool_], mask)
+
+
 def precompute_predictions(
     model: GaussianModel,
     params: Sequence[str],
@@ -134,6 +160,24 @@ def chi2_grid(
         return cast(NDArray[np.float64], np.asarray(chi2, dtype=float))
 
     raise ValueError("y must be one-dimensional or two-dimensional")
+
+
+def q_grid_profile_slice(
+    y: np.ndarray,
+    predictions: np.ndarray,
+    profile_predictions: np.ndarray,
+    vinv: np.ndarray,
+) -> float | NDArray[np.float64]:
+    """Profile statistic using a fixed slice for the tested parameter value."""
+    chi2_full = chi2_grid(y=y, predictions=predictions, vinv=vinv)
+    chi2_profile = chi2_grid(y=y, predictions=profile_predictions, vinv=vinv)
+
+    if chi2_full.ndim == 1:
+        q = float(np.min(chi2_profile) - float(np.min(chi2_full)))
+        return float(np.maximum(q, 0.0))
+
+    q = np.min(chi2_profile, axis=0) - np.min(chi2_full, axis=0)
+    return cast(NDArray[np.float64], np.maximum(q, 0.0))
 
 
 def q_grid_profile(
@@ -221,6 +265,93 @@ def build_grid_belt(
         alpha=float(alpha),
         confidence_level=float(1.0 - alpha),
     )
+
+
+def build_profiled_grid_belt(
+    params: Sequence[str],
+    poi: str,
+    model: GaussianModel,
+    grid: np.ndarray,
+    n_toys: int,
+    alpha: float,
+    rng: np.random.Generator,
+    start: Params,
+    base: Params | None = None,
+    batch_size: int | None = None,
+    atol: float = 1e-12,
+) -> Belt:
+    """Build a 1D belt by profiling over all grid parameters except `poi`."""
+    param_names = (params,) if isinstance(params, str) else tuple(params)
+    if poi not in param_names:
+        raise ValueError("poi must be one of params")
+    if poi not in start:
+        raise ValueError("start must contain the parameter of interest")
+    if n_toys <= 0:
+        raise ValueError("n_toys must be positive")
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must lie in [0, 1]")
+
+    grid_arr = _as_parameter_grid(param_names, grid)
+    predictions = precompute_predictions(model, param_names, grid_arr, base=base)
+
+    cov = getattr(model, "_cov", None)
+    if cov is None:
+        cov = model.covariance_matrix
+    cov_arr = np.asarray(cov, dtype=float)
+
+    vinv = getattr(model, "_cov_inv", None)
+    if vinv is None:
+        vinv = model.inverse_covariance
+    vinv_arr = np.asarray(vinv, dtype=float)
+
+    chol = getattr(model, "_chol", None)
+    if chol is None:
+        chol = np.linalg.cholesky(cov_arr)
+    chol_arr = np.asarray(chol, dtype=float)
+
+    poi_idx = param_names.index(poi)
+    poi_values = np.unique(grid_arr[:, poi_idx])
+    batch_cap = n_toys if batch_size is None else int(batch_size)
+    if batch_cap <= 0:
+        raise ValueError("batch_size must be positive when provided")
+
+    n_obs = int(predictions.shape[1])
+    q_values = np.empty(n_toys, dtype=float)
+    qcrit = np.empty(poi_values.size, dtype=float)
+
+    for i, poi_value in enumerate(poi_values):
+        profile_mask = grid_mask_for_fixed_params(
+            params=param_names,
+            grid=grid_arr,
+            fixed={poi: float(poi_value)},
+            atol=atol,
+        )
+        profile_predictions = predictions[profile_mask]
+        if profile_predictions.size == 0:
+            raise RuntimeError("profile slice unexpectedly empty")
+
+        true_params = dict(base) if base is not None else {}
+        true_params.update(start)
+        true_params[poi] = float(poi_value)
+        mean = np.asarray(model.obs.predict_vector(true_params), dtype=float)
+
+        offset = 0
+        while offset < n_toys:
+            n_batch = min(batch_cap, n_toys - offset)
+            noise = rng.standard_normal(size=(n_batch, n_obs))
+            toys = mean + noise @ chol_arr.T
+            q_batch = q_grid_profile_slice(
+                y=toys,
+                predictions=predictions,
+                profile_predictions=profile_predictions,
+                vinv=vinv_arr,
+            )
+            q_values[offset : offset + n_batch] = np.asarray(q_batch, dtype=float)
+            offset += n_batch
+
+        qcrit[i] = float(np.quantile(q_values, 1.0 - alpha))
+
+    return Belt(param=poi, grid=poi_values, qcrit=qcrit, alpha=float(alpha))
 
 
 def build_belt(

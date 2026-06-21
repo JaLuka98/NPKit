@@ -10,7 +10,9 @@ from npkit.neyman import (
     _as_parameter_grid,
     _grid_row_to_params,
     build_grid_belt,
+    build_profiled_grid_belt,
     chi2_grid,
+    grid_mask_for_fixed_params,
     precompute_predictions,
     q_grid_profile,
 )
@@ -163,6 +165,17 @@ def test_build_grid_belt_accepts_one_dimensional_grid():
     assert belt.params == ("C",)
 
 
+def test_grid_mask_for_fixed_params_selects_profile_slice():
+    grid_1d = np.linspace(0.0, 4.0, 21, dtype=float)
+    grid = np.array([(c1, c2) for c1 in grid_1d for c2 in grid_1d], dtype=float)
+
+    mask = grid_mask_for_fixed_params(("C1", "C2"), grid, {"C1": 0.0})
+
+    assert mask.shape == (grid.shape[0],)
+    assert int(mask.sum()) == grid_1d.size
+    assert np.allclose(grid[mask, 0], 0.0)
+
+
 def _central_confidence_from_sigma(nsigma: float) -> float:
     return float(2.0 * norm.cdf(nsigma) - 1.0)
 
@@ -297,32 +310,23 @@ def test_grid_belt_profiled_one_parameter_matches_chernoff_mixture(
     model = GaussianModel(obs=obs, covariance=100.0)
 
     conf = _central_confidence_from_sigma(nsigma)
-    c1_grid = np.linspace(0.0, 4.0, 81, dtype=float)
-    c2_grid = np.linspace(0.0, 4.0, 21, dtype=float)
-    grid = np.array([(c1, c2) for c1 in c1_grid for c2 in c2_grid], dtype=float)
+    grid_1d = np.linspace(0.0, 4.0, 21, dtype=float)
+    grid = np.array([(c1, c2) for c1 in grid_1d for c2 in grid_1d], dtype=float)
 
-    predictions = precompute_predictions(model, ("C1", "C2"), grid)
-    profile_predictions = predictions[np.isclose(grid[:, 0], 0.0)]
-    vinv = model.inverse_covariance
-    chol = model._chol
-
-    n_toys = 30_000
-    batch_size = 100
-    q_values = np.empty(n_toys, dtype=float)
-    offset = 0
-    while offset < n_toys:
-        n_batch = min(batch_size, n_toys - offset)
-        toys = profile_predictions[0] + rng.standard_normal(size=(n_batch, 2)) @ chol.T
-        chi2_profile = chi2_grid(toys, profile_predictions, vinv)
-        chi2_full = chi2_grid(toys, predictions, vinv)
-        q_values[offset : offset + n_batch] = np.maximum(
-            chi2_profile.min(axis=0) - chi2_full.min(axis=0),
-            0.0,
-        )
-        offset += n_batch
+    belt = build_profiled_grid_belt(
+        params=("C1", "C2"),
+        poi="C1",
+        model=model,
+        grid=grid,
+        n_toys=30_000,
+        alpha=1.0 - conf,
+        rng=rng,
+        start={"C1": 0.0, "C2": 0.0},
+        batch_size=100,
+    )
 
     expected = float(norm.ppf(conf) ** 2)
-    q0 = float(np.quantile(q_values, conf))
+    q0 = float(belt.qcrit[0])
 
     assert abs(q0 - expected) <= tol, (
         f"profiled 1D qcrit {q0:.6f} not close to Chernoff-mixture value "

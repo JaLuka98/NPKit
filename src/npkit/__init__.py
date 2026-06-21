@@ -21,12 +21,15 @@ from .neyman import (
     build_belt,
     build_belts_from_grid,
     build_grid_belt,
+    build_profiled_grid_belt,
     check_coverage,
     chi2_grid,
+    grid_mask_for_fixed_params,
     invert_belt,
     invert_belt_from_curve,
     precompute_predictions,
     q_grid_profile,
+    q_grid_profile_slice,
 )
 
 __all__ = [
@@ -45,9 +48,12 @@ __all__ = [
     "build_belt",
     "build_belts_from_grid",
     "build_grid_belt",
+    "build_profiled_grid_belt",
     "chi2_grid",
+    "grid_mask_for_fixed_params",
     "precompute_predictions",
     "q_grid_profile",
+    "q_grid_profile_slice",
     "invert_belt_from_curve",
     "invert_belt",
     "check_coverage",
